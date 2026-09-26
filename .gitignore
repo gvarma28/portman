@@ -1,0 +1,7 @@
+# Delve debug binaries
+__debug_bin*
+
+# Compiled binary
+/portman
+
+config.yaml

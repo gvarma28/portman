@@ -1,0 +1,7 @@
+hosts:
+  - host: <user>@<ip_address>
+    forwards:
+      - local: 3000
+        remote: 3000
+      - local: 8000
+        remote: 8080
