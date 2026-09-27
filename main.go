@@ -17,27 +17,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-func sshConfig(user string) (*ssh.ClientConfig, error) {
-	hostKeys, err := knownhosts.New(filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts"))
-	if err != nil {
-		return nil, err
-	}
-	sockPath := os.Getenv("SSH_AUTH_SOCK")
-	if sockPath == "" {
-		return nil, errors.New("SSH_AUTH_SOCK not set (is ssh-running?)")
-	}
-	sock, err := net.Dial("unix", sockPath)
-	if err != nil {
-		return nil, fmt.Errorf("connect to ssh-agent: %w", err)
-	}
-	return &ssh.ClientConfig{
-		User:            user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(sock).Signers)},
-		HostKeyCallback: hostKeys,
-		Timeout:         10 * time.Second,
-	}, nil
-}
-
 func main() {
 	cfg := parseConfig("config.yaml")
 
@@ -54,11 +33,11 @@ func main() {
 			addr += ":22"
 		}
 
-		client, err := ssh.Dial("tcp", addr, cfg)
+		server, err := ssh.Dial("tcp", addr, cfg)
 		if err != nil {
 			log.Fatal("ssh: ", err)
 		}
-		defer client.Close()
+		defer server.Close()
 		for _, p := range h.Forwards {
 			if p.Local == 0 || p.Remote == 0 {
 				log.Fatalf("usage: invalid ports: local:%d, remote:%d", p.Local, p.Remote)
@@ -70,9 +49,9 @@ func main() {
 			}
 			log.Printf("forwarding localhost:%d -> %s localhost:%d", p.Local, addr, p.Remote)
 
-			go func(ln net.Listener, client *ssh.Client, remote int) {
+			go func(ln net.Listener, server *ssh.Client, port int) {
 				for {
-					conn, err := ln.Accept()
+					local, err := ln.Accept()
 					if err != nil {
 						if errors.Is(err, net.ErrClosed) {
 							return
@@ -82,9 +61,9 @@ func main() {
 						continue
 					}
 					log.Println("handling loop")
-					go handle(client, conn, remote)
+					go handle(server, local, port)
 				}
-			}(ln, client, p.Remote)
+			}(ln, server, p.Remote)
 
 		}
 	}
@@ -106,10 +85,31 @@ func parseConfig(path string) Config {
 	return cfg
 }
 
-func handle(client *ssh.Client, local net.Conn, port int) {
+func sshConfig(user string) (*ssh.ClientConfig, error) {
+	hostKeys, err := knownhosts.New(filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts"))
+	if err != nil {
+		return nil, err
+	}
+	sockPath := os.Getenv("SSH_AUTH_SOCK")
+	if sockPath == "" {
+		return nil, errors.New("SSH_AUTH_SOCK not set (is ssh-running?)")
+	}
+	sock, err := net.Dial("unix", sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("connect to ssh-agent: %w", err)
+	}
+	return &ssh.ClientConfig{
+		User:            user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(sock).Signers)},
+		HostKeyCallback: hostKeys,
+		Timeout:         10 * time.Second,
+	}, nil
+}
+
+func handle(server *ssh.Client, local net.Conn, port int) {
 	defer local.Close()
 
-	remote, err := client.Dial("tcp", fmt.Sprintf("localhost:%d", port))
+	remote, err := server.Dial("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
 		log.Printf("remote dial: %v", err)
 		return
