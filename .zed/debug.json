@@ -4,7 +4,8 @@
     "adapter": "Delve",
     "request": "launch",
     "mode": "debug",
-    "program": ".",
+    "program": "./cmd/portman",
     "cwd": "$ZED_WORKTREE_ROOT",
+    "args": ["-config", "config.yaml"]
   }
 ]
